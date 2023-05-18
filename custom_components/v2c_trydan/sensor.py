@@ -33,7 +33,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
-from .const import DOMAIN, CONF_KWH_PER_100KM, CONF_PRECIO_LUZ
+from .const import DOMAIN, CONF_KWH_PER_100KM, CONF_PRECIO_LUZ, CONF_CAR_BATTERY_CAPACITY
 from .coordinator import V2CtrydanDataUpdateCoordinator
 from .number import KmToChargeNumber
 
@@ -85,6 +85,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entitie
     ]
     sensors.append(ChargeKmSensor(coordinator, ip_address, kwh_per_100km))
     sensors.append(NumericalStatus(coordinator))
+    sensors.append(SmartChargeEntity(coordinator))
 
     await asyncio.sleep(10)
 
@@ -432,8 +433,14 @@ class PrecioLuzEntity(CoordinatorEntity, SensorEntity):
                     valid_hours_next_day.append(i)
                     total_hours += 1
 
+            if len(valid_hours) == 0:
+              valid_hours = "-"
+
+            if len(valid_hours_next_day) == 0:
+              valid_hours_next_day = "-"
+
             return valid_hours, valid_hours_next_day, total_hours
-    
+
         async def pause_or_resume_charging(current_state, max_price, paused_switch, v2c_carga_pvpc_switch):
             if v2c_carga_pvpc_switch.is_on:
                 if float(current_state) <= max_price:
@@ -447,7 +454,7 @@ class PrecioLuzEntity(CoordinatorEntity, SensorEntity):
             v2c_carga_pvpc_switch = entities.get("v2c_carga_pvpc_switch")
             max_price_entity = entities.get("max_price_entity")
             precio_luz_entity_id = self.config_entry.options.get(CONF_PRECIO_LUZ)
-            
+
             if precio_luz_entity_id:
                 await self.hass.services.async_call('homeassistant', 'update_entity', {'entity_id': precio_luz_entity_id})
                 precio_luz_entity = self.hass.states.get(precio_luz_entity_id)
@@ -480,3 +487,49 @@ class PrecioLuzEntity(CoordinatorEntity, SensorEntity):
         await update_state(None)
 
         async_track_time_interval(self.hass, update_state, timedelta(seconds=30))
+
+
+class SmartChargeEntity(CoordinatorEntity, SensorEntity):
+    def __init__(self, coordinator, ip_address, config_entry):
+        super().__init__(coordinator)
+        self.v2c_precio_luz_entity = precio_luz_entity
+        self.config_entry = config_entry
+        self.ip_address = ip_address
+
+    async def cargar_coche(self):
+        # Obtener el porcentaje actual de carga de la batería del coche
+        battery_percentage = self.hass.states.get("input_number.car_battery")
+
+        # Obtener el porcentaje de carga de la batería del coche por hora
+        charge_percentage_per_hour = input_number.estimation_on_battery_percentage_charged_every_hour
+
+        # Obtener el precio de la luz por hora
+        precio_luz_entity = self.hass.states.get("sensor.precio_luz")
+        precio_luz_attributes = precio_luz_entity.attributes
+
+        # Crear una lista de tuplas con el precio de la luz y la hora correspondiente
+        horas_y_precios = []
+        for i in range(24):
+            hora = f"{i:02d}h"
+            precio = precio_luz_attributes.get(f"price_{hora}")
+            horas_y_precios.append((hora, precio))
+        
+        for i in range(24):
+            hora = f"{i:02d}h"
+            precio = precio_luz_attributes.get(f"price_next_day_{hora}")
+            horas_y_precios.append((f"Mañana {hora}", precio))
+
+        # Ordenar la lista de horas y precios de forma ascendente por precio
+        horas_y_precios.sort(key=lambda x: x[1])
+
+        # Calcular cuántos periodos de 1 hora se necesitan para cargar el coche al 100%
+        horas_necesarias = (100 - battery_percentage) / charge_percentage_per_hour
+
+        # Obtener el precio de la última hora de carga necesaria
+        last_hour_price = horas_y_precios[int(horas_necesarias) - 1][1]
+
+        # Redondear el precio a 3 decimales
+        rounded_price = round(last_hour_price, 3)
+
+        # Setear el valor de number.v2c_maxprice con el precio resultante
+        await async_set_maxprice(hass, ip_address, rounded_price)
