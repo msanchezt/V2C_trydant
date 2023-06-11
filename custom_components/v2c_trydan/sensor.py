@@ -425,7 +425,7 @@ class PrecioLuzEntity(CoordinatorEntity, SensorEntity):
                 next_day_price_attr = f"price_next_day_{i:02d}h"
 
                 if price_attr in attributes and float(attributes[price_attr]) <= max_price:
-                    if i > current_hour:
+                    if i >= current_hour:
                         valid_hours.append(i)
                         total_hours += 1
 
