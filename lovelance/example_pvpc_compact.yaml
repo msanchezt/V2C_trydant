@@ -63,12 +63,18 @@ cards:
       - type: custom:mushroom-entity-card
         entity: switch.v2c_trydan_switch_paused
         name: Pausar
+        tap_action:
+          action: toggle
       - type: custom:mushroom-entity-card
         entity: switch.v2c_trydan_switch_locked
         name: Bloqueo
+        tap_action:
+          action: toggle
       - type: custom:mushroom-entity-card
         entity: switch.v2c_trydan_switch_dynamic
         name: Dinamico
+        tap_action:
+          action: toggle
   - type: entities
     entities:
       - entity: sensor.v2c_trydan_sensor_chargestate
